@@ -6,7 +6,7 @@ load_dotenv(override=True)  # cspell:ignore dotenv
 
 
 WORKDIR = Path.cwd()
-
+SKILLS_DIR = WORKDIR / "skills"
 MODEL = os.environ["MODEL_ID"]
 
 ENVIRONMENT_PROMPT = (

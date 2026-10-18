@@ -9,6 +9,14 @@ from tools import BASE_TOOLS, BASE_HANDLERS
 from todo import TODO_TOOLS, TODO_HANDLERS
 from subagent import run_subagent
 
+from config import SKILLS_DIR
+from skill_loader import SkillLoader
+from config import WORKDIR
+from context_compactor import ContextCompactor
+skill_loader = SkillLoader(SKILLS_DIR)
+COMPACTOR = ContextCompactor(WORKDIR)
+def load_skill(name: str) -> str:
+    return skill_loader.load(name)
 
 TASK_TOOL = {
     "type": "function",
@@ -30,8 +38,33 @@ TASK_TOOL = {
         },
     },
 }
-
-
+LOAD_SKILL_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "load_skill",
+        "description": (
+            "Load the full instructions of a skill "
+            "when it is relevant to the current task."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "The exact name of the skill to load."
+                }
+            },
+            "required": ["name"],
+            "additionalProperties": False,
+        },
+    },
+}
+system_prompt = (
+    f"{SYSTEM}\n\n"
+    f"Skills available:\n{skill_loader.catalog()}\n\n"
+    "When a skill is relevant to the task, call load_skill "
+    "with its exact name and follow the loaded instructions."
+)
 def execute_tool(
     block,
     handlers: dict,
@@ -87,19 +120,24 @@ def agent_loop(
         *BASE_TOOLS,
         *TODO_TOOLS,
         TASK_TOOL,
+        LOAD_SKILL_TOOL,
     ]
 
     handlers = {
         **BASE_HANDLERS,
         **TODO_HANDLERS,
         "task": run_subagent,
+        "load_skill": load_skill,
     }
 
     while True:
 
         response = client.chat.completions.create(
             model=MODEL,
-            messages=messages,
+            messages=[
+        {"role": "system", "content": system_prompt},
+        *messages,
+    ],
             tools=tools,
         )
 
@@ -138,7 +176,10 @@ def agent_loop(
                 f"> {tool_name}: "
                 f"{output[:200]}"
             )
-
+            output = COMPACTOR.persist_large_output(
+                  tool_call.id,
+                  str(output),
+            )
             results.append({
                 "role": "tool",
                 "tool_call_id": tool_call.id,
