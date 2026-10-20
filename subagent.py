@@ -1,156 +1,104 @@
-from openai import  OpenAI
+import json
+from types import SimpleNamespace
 
-from config import MODEL, SUB_SYSTEM
+from openai import OpenAI
+
+from config import MAX_AGENT_TURNS, MODEL, SUB_SYSTEM
 from hooks import trigger_hooks
-from tools import BASE_TOOLS, BASE_HANDLERS
+from tools import BASE_HANDLERS, BASE_TOOLS
 
 
-def extract_text(content) -> str:
-    if not isinstance(content, list):
-        return str(content)
-
-    return "\n".join(
-        getattr(block, "text", "")
-        for block in content
-        if getattr(block, "type", None) == "text"
-    )
-
-
-def execute_subagent_tool(
-    block,
-) -> str:
-
-    blocked = trigger_hooks(
-        "PreToolUse",
-        block,
-    )
+def execute_subagent_tool(block) -> str:
+    blocked = trigger_hooks("PreToolUse", block)
 
     if blocked:
         return str(blocked)
 
-    handler = BASE_HANDLERS.get(
-        block.name
-    )
+    handler = BASE_HANDLERS.get(block.name)
 
     try:
         output = (
             handler(**block.input)
             if handler
-            else f"Unknown: {block.name}"
+            else f"Unknown tool: {block.name}"
         )
+    except Exception as error:
+        output = f"Error: {error}"
 
-    except Exception as e:
-        output = f"Error: {e}"
-
-    trigger_hooks(
-        "PostToolUse",
-        block,
-        output,
-    )
-
+    trigger_hooks("PostToolUse", block, output)
     return str(output)
 
 
 def run_subagent(
     prompt: str,
     client: OpenAI,
+    role: str = "general-purpose subagent",
 ) -> str:
+    print("\n\033[35m[Subagent started]\033[0m")
+    system = f"{SUB_SYSTEM}\n\nYour role: {role}"
+    messages = [{"role": "user", "content": prompt}]
 
-    print(
-        "\n\033[35m[Subagent started]\033[0m"
-    )
-
-    messages = [
-        {
-            "role": "user",
-            "content": prompt,
-        }
-    ]
-
-    for turn in range(30):
-
-        response = client.messages.create(
+    for _ in range(MAX_AGENT_TURNS):
+        response = client.chat.completions.create(
             model=MODEL,
-            system=SUB_SYSTEM,
-            messages=messages,
+            messages=[
+                {"role": "system", "content": system},
+                *messages,
+            ],
             tools=BASE_TOOLS,
-            max_tokens=8000,
         )
+        message = response.choices[0].message
+        messages.append(message.model_dump(exclude_none=True))
 
-        messages.append(
-            {
-                "role": "assistant",
-                "content": response.content,
-            }
-        )
-
-        tool_calls = [
-            block
-            for block in response.content
-            if block.type == "tool_use"
-        ]
-
-        if not tool_calls:
-
-            force = trigger_hooks(
-                "Stop",
-                messages,
-            )
+        if not message.tool_calls:
+            force = trigger_hooks("Stop", messages)
 
             if force:
                 messages.append(
-                    {
-                        "role": "user",
-                        "content": str(force),
-                    }
+                    {"role": "user", "content": str(force)}
                 )
                 continue
 
-            print(
-                "\033[35m[Subagent done]\033[0m"
-            )
-
-            return (
-                extract_text(
-                    response.content
-                )
-                or "(no summary)"
-            )
+            print("\033[35m[Subagent done]\033[0m")
+            return message.content or "(no summary)"
 
         results = []
 
-        for block in tool_calls:
+        for tool_call in message.tool_calls:
+            try:
+                arguments = json.loads(
+                    tool_call.function.arguments
+                )
 
-            output = execute_subagent_tool(
-                block
-            )
+                if not isinstance(arguments, dict):
+                    raise ValueError("Arguments must be a JSON object")
+            except (json.JSONDecodeError, ValueError) as error:
+                output = f"Invalid tool arguments: {error}"
+            else:
+                block = SimpleNamespace(
+                    name=tool_call.function.name,
+                    input=arguments,
+                    id=tool_call.id,
+                )
+                output = execute_subagent_tool(block)
 
+            preview = str(output)[:160]
             print(
-                f"  \033[90m[sub] "
-                f"{block.name}: "
-                f"{output[:100]}\033[0m"
+                f"  \033[90m[sub] {tool_call.function.name}: "
+                f"{preview}\033[0m"
             )
-
             results.append(
                 {
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": output,
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": str(output)[:50_000],
                 }
             )
 
-        messages.append(
-            {
-                "role": "user",
-                "content": results,
-            }
-        )
+        messages.extend(results)
 
-    print(
-        "\033[35m[Subagent stopped]\033[0m"
-    )
-
+    print("\033[35m[Subagent stopped]\033[0m")
     return (
-        "Subagent stopped after 30 turns "
+        f"Subagent stopped after {MAX_AGENT_TURNS} turns "
         "without a final answer."
     )

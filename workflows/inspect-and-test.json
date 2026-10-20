@@ -1,0 +1,26 @@
+{
+  "name": "inspect-and-test",
+  "steps": [
+    {
+      "id": "inspect",
+      "type": "agent",
+      "role": "repository inspector",
+      "prompt": "Inspect the workspace structure and identify the smallest safe change needed for the current task. Return concrete file names and risks."
+    },
+    {
+      "id": "tests",
+      "type": "tool",
+      "tool": "bash",
+      "arguments": {
+        "command": "python -m unittest discover -s tests -v"
+      },
+      "continue_on_error": true
+    },
+    {
+      "id": "report",
+      "type": "agent",
+      "role": "test reporter",
+      "prompt": "Summarize this inspection and test evidence. State clearly whether tests passed.\n\nInspection:\n{{steps.inspect.output}}\n\nTest output:\n{{steps.tests.output}}"
+    }
+  ]
+}

@@ -1,3 +1,12 @@
 .env
 __pycache__/
 *.pyc
+.memory/
+.tasks/
+.background/
+.cron/
+.teams/
+.goals/
+.workflows/runs/
+.task_outputs/
+.transcripts/

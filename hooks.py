@@ -51,20 +51,27 @@ def large_output_hook(block, output) -> None:
 
 
 def summary_hook(messages: list) -> None:
-    tool_count = sum(
-        1
-        for message in messages
-        if isinstance(message.get("content"), list)
-        for block in message["content"]
-        if (
-            isinstance(block, dict)
-            and block.get("type") == "tool_result"
-        )
-    )
+    tool_count = 0
+
+    for message in messages:
+        if message.get("role") == "assistant":
+            tool_count += len(message.get("tool_calls", []) or [])
+
+        content = message.get("content")
+
+        if isinstance(content, list):
+            tool_count += sum(
+                1
+                for block in content
+                if (
+                    isinstance(block, dict)
+                    and block.get("type") == "tool_result"
+                )
+            )
 
     print(
         f"\033[90m[HOOK] Stop: "
-        f"{tool_count} tool result(s) in this loop\033[0m"
+        f"{tool_count} tool call(s) in this conversation\033[0m"
     )
 
 

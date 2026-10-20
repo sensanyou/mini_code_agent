@@ -154,9 +154,16 @@ BASE_TOOLS = [
                 "properties": {
                     "command": {
                         "type": "string"
+                    },
+                    "run_in_background": {
+                        "type": "boolean",
+                        "description": (
+                            "Return immediately and report completion later."
+                        ),
                     }
                 },
                 "required": ["command"],
+                "additionalProperties": False,
             },
         },
     },

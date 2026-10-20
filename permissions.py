@@ -41,6 +41,13 @@ def contains_destructive_command(command: str) -> bool:
 
 PERMISSION_RULES = [
     {
+        "tools": ["mcp_connect"],
+        "check": lambda args: bool(
+            str(args.get("command", "")).strip()
+        ),
+        "message": "Start an external MCP server process",
+    },
+    {
         "tools": [
             "read_file",
             "write_file",
